@@ -9,3 +9,4 @@ class NBA_COLLECTIONS():
 
     Players = 'Players'
     CommonPlayerInfo = 'CommonPlayerInfo'
+    PlayerGameLogs = 'PlayerGameLogs'
