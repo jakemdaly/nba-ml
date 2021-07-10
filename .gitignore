@@ -1,3 +1,7 @@
 # ignore everything in these
-.notebooks/*
+notebooks/*
 .vscode/*
+
+# any sort of pycache
+*.pyc
+db/mongo/__pycache__/*

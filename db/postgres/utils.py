@@ -4,9 +4,9 @@ from configparser import ConfigParser
 
 CONNECTION_INFO = {
     'host': 'localhost',
-    'database': 'NBA',
-    'user': 'postgres',
-    'password': 'postgres'
+    'database': 'nba',
+    'user': 'jakemdaly',
+    'password': 'jakemdaly'
 }
 
 def connect():
@@ -15,7 +15,7 @@ def connect():
     Returns:
         Postgres Client connection
     '''
-    connection = psycopg2.connect( f"user={CONNECTION_INFO['user']} password={CONNECTION_INFO['password']}" )
+    connection = psycopg2.connect(**CONNECTION_INFO)
     return connection
 
 def create_db(conn:psycopg2.extensions.connection, db_name:str):
@@ -37,7 +37,7 @@ def create_db(conn:psycopg2.extensions.connection, db_name:str):
         conn.autocommit = False
 
 
-def create_table( sql_query: str, conn: psycopg2.extensions.connection) -> None:
+def create_table(conn: psycopg2.extensions.connection,  sql_query: str) -> None:
     '''
     Use this function to create a table using a SQL query, note that this does not help
     construct the query, it only helps issue and commit the SQL. 
@@ -50,12 +50,32 @@ def create_table( sql_query: str, conn: psycopg2.extensions.connection) -> None:
         # Execute the table creation query
         cur.execute(sql_query)
 
+
     except Exception as e:
         print(f"{type(e).__name__}: {e}")
         print(f"Query: {cur.query}")
         conn.rollback()
         cur.close()
+        return 1
 
     else:
         # To take effect, changes need be committed to the database
         conn.commit()
+        return 0
+
+
+def insert_one(conn: psycopg2.extensions.connection,  sql_query: str):
+    """ Execute a single INSERT request """
+    cursor = conn.cursor()
+    try:
+        cursor.execute(sql_query)
+        conn.commit()
+
+    except (Exception, psycopg2.DatabaseError) as error:
+        print("Error: %s" % error)
+        conn.rollback()
+        cursor.close()
+        return 1
+
+    cursor.close()
+    return 0

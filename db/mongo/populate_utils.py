@@ -115,18 +115,22 @@ def update_mongo_player_game_logs(player_ids:list):
 
             # need to convert indices to strings so that we can store in pymongo collection
             df_player_game_logs.index = df_player_game_logs.index.map(str)
-            player_game_logs = df_player_game_logs.to_dict()
-            # add full name and standardize ID field
-            player_game_logs['full_name'] = player['full_name']
-            player_game_logs['id'] = player['id']
-            del player_game_logs['Player_ID']
-
-            # ... if it already exists we're going to delete it first (ie perform an update)
-            if collection.find_one(player_id) != None:
-                collection.delete_one({"id": player_id})
-
-            # ... then either way update with the new entry
-            collection.insert_one()
+            for k, row in df_player_game_logs.iterrows():
+                insert = dict(row)
+                insert.update(
+                    {'full_name': player['full_name'],
+                    'id': player['id']}
+                )
+                insert.pop('Player_ID')
+                query = {'$and': [{'full_name': insert['full_name']}, {'Game_ID': insert['Game_ID']}]}
+                already_in_collection = collection.find_one(query)
+                
+                # ... if it already exists we're going to delete it first (ie perform an update)
+                if already_in_collection:
+                    collection.delete_one(query)
+                
+                # ... then either way update with the new entry
+                collection.insert_one(query)
 
             # if successful we can remove this from the remaining ids to do
             remaining_ids.remove(player['id'])
