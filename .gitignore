@@ -5,3 +5,4 @@ notebooks/*
 # any sort of pycache
 *.pyc
 db/mongo/__pycache__/*
+*.csv
