@@ -47,16 +47,3 @@ client = MongoClient('localhost', 27017)
 nba_db = client['NBA']
 dataset = nba_db.DatasetPlayerGameLogs
 ids = dataset.distinct("PLAYER_ID")
-
-
-data = [doc for doc in dataset.find({})]
-
-def batchify_data(data):
-
-    np.random.shuffle(data)
-
-    split_size = int(len(data)*.85)
-    train_data = {player_lookup[d["_id"]]: np.array(d['data']) for d in data[:split_size]}
-    valid_data = {player_lookup[d["_id"]]: np.array(d['data']) for d in data[split_size:]}
-    
-    return train_data, valid_data
