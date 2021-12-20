@@ -23,7 +23,7 @@ def transformer(dataloader, EPOCH, k, frequency, path_to_save_model, path_to_sav
     device = torch.device(device)
 
     model = Transformer().double().to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=.1)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1)
     # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=200)
     criterion = torch.nn.MSELoss()
     best_model = ""
@@ -36,8 +36,8 @@ def transformer(dataloader, EPOCH, k, frequency, path_to_save_model, path_to_sav
         ## TRAIN -- TEACHER FORCING
         model.train()
         ii=0
-        for index_in, index_tar, _input, target, player in dataloader:
-            print(f"{player[0]:<25}:", end='')
+        for index_in, index_tar, _input, target, player in dataloader.balanced_sample():
+            print(f"{player:<25}:", end='')
             # Shape of _input : [batch, input_length, feature]
             # Desired input for model: [input_length, batch, feature]
 
@@ -61,7 +61,7 @@ def transformer(dataloader, EPOCH, k, frequency, path_to_save_model, path_to_sav
                     prob_true_val = True
                 else:
                     ## coin flip
-                    v = k/(k+math.exp(epoch/k)) # probability of heads/tails depends on the epoch, evolves with time.
+                    v = k/(k+math.exp(epoch/k))*2 # probability of heads/tails depends on the epoch, evolves with time.
                     prob_true_val = flip_from_probability(v) # starts with over 95 % probability of true val for each flip in epoch 0.
                     ## if using true value as new value
 
@@ -69,8 +69,8 @@ def transformer(dataloader, EPOCH, k, frequency, path_to_save_model, path_to_sav
                     sampled_src = torch.cat((sampled_src.detach(), src[i+1, :, :].unsqueeze(0).detach()))
                 else: ## using prediction as new value
                     positional_encodings_new_val = src[i+1,:,1:].unsqueeze(0)
-                    predicted_humidity = torch.cat((prediction[-1,:,:].unsqueeze(0), positional_encodings_new_val), dim=2)
-                    sampled_src = torch.cat((sampled_src.detach(), predicted_humidity.detach()))
+                    predicted_fpoints = torch.cat((prediction[-1,:,:].unsqueeze(0), positional_encodings_new_val), dim=2)
+                    sampled_src = torch.cat((sampled_src.detach(), predicted_fpoints.detach()))
             
             """To update model after each sequence"""
             loss = criterion(target[:-1,:,0].unsqueeze(-1), prediction) 
@@ -80,6 +80,7 @@ def transformer(dataloader, EPOCH, k, frequency, path_to_save_model, path_to_sav
             ii+=1
             print(f"{loss:.2f} \t\t Ave: {train_loss/ii:.2f}")
 
+
         if train_loss < min_train_loss:
             torch.save(model.state_dict(), path_to_save_model + f"best_train_{epoch}.pth")
             torch.save(optimizer.state_dict(), path_to_save_model + f"optimizer_{epoch}.pth")
@@ -87,15 +88,15 @@ def transformer(dataloader, EPOCH, k, frequency, path_to_save_model, path_to_sav
             best_model = f"best_train_{epoch}.pth"
 
 
-        if epoch % 10 == 0: # Plot 1-Step Predictions
+        # if epoch % 10 == 0: # Plot 1-Step Predictions
 
-            logger.info(f"Epoch: {epoch}, Training loss: {train_loss}")
-            # scaler = load('scalar_item.joblib')
-            sampled_src_fpts = sampled_src[:,:,0].cpu() #torch.Size([35, 1, 7])
-            src_fpts = src[:,:,0].cpu() #torch.Size([35, 1, 7])
-            target_fpts = target[:,:,0].cpu() #torch.Size([35, 1, 7])
-            prediction_fpts = prediction[:,:,0].detach().cpu().numpy() #torch.Size([35, 1, 7])
-            plot_training_3(epoch, path_to_save_predictions, src_fpts, sampled_src_fpts, prediction_fpts, player, index_in, index_tar)
+        #     logger.info(f"Epoch: {epoch}, Training loss: {train_loss}")
+        #     # scaler = load('scalar_item.joblib')
+        #     sampled_src_fpts = sampled_src[:,:,0].cpu() #torch.Size([35, 1, 7])
+        #     src_fpts = src[:,:,0].cpu() #torch.Size([35, 1, 7])
+        #     target_fpts = target[:,:,0].cpu() #torch.Size([35, 1, 7])
+        #     prediction_fpts = prediction[:,:,0].detach().cpu().numpy() #torch.Size([35, 1, 7])
+        #     plot_training_3(epoch, path_to_save_predictions, src_fpts, sampled_src_fpts, prediction_fpts, player, index_in, index_tar)
 
         train_loss /= len(dataloader)
         log_loss(train_loss, path_to_save_loss, train=True)

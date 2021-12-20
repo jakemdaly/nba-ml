@@ -24,6 +24,27 @@ def get_season_str_after(season:str):
     season_second_part = '00' if season_second_part == '100' else season_second_part
     return season_first_part+'-'+season_second_part
 
+def min_to_float(min_string: str):
+    '''MM:SS to float. Eg. '14:30' to 14.5'''
+    if min_string == None:
+        return 0
+    else:
+        split = min_string.split(':')
+        return float(split[0]) + float(split[1])/60
+
+
+def get_winning_team(box_score_summary_line_score):
+    '''This will compute the winning team from the BoxScoreSummaryV2's LineScore'''
+    team1 = box_score_summary_line_score[0]['TEAM_ABBREVIATION']
+    score_team1 = box_score_summary_line_score[0]['PTS']
+    team2 = box_score_summary_line_score[1]['TEAM_ABBREVIATION']
+    score_team2 = box_score_summary_line_score[1]['PTS']
+    if score_team1 > score_team2:
+        return team1
+    else:
+        return team2
+
+
 def has_both_years(season, bas_years, adv_years):
     '''
     Will check if we can proceed with using this player season for training by checking that we have the both the advanced and basic 
@@ -83,13 +104,13 @@ def add_age_to_player_gamelog():
         cpi = collection_cpi.find_one({"PLAYER_ID": pid})
         birthdate = cpi['BIRTHDATE'].split("T")[0]
         
-        for player_gamelog in collection_gamelogs.find({"PLAYER_ID": pid}):
+        for player_gamelog in collection_gamelogs.find({"PLAYER_ID": pid, "PLAYER_AGE": {"$exists": False}}):
 
             if 'PLAYER_AGE' not in player_gamelog:
 
                 date = player_gamelog["GAME_DATE"] # Format is "APR 20, 1997"
                 
-                delta = datetime.strptime(date, "%b %d, %Y") - datetime.strptime(birthdate, "%Y-%m-%d")
+                delta = date - datetime.strptime(birthdate, "%Y-%m-%d")
                 age = delta.days/365.25
                 player_gamelog['PLAYER_AGE'] = age
 

@@ -61,6 +61,46 @@ class GameLogDataset(Dataset):
         # dump(scaler, 'scalar_item.joblib')
 
         return index_in, index_tar, _input, target, player
+    
+    def balanced_sample(self):
+
+        BUCKET_SIZE = 5
+
+        self.data = pd.DataFrame(self.data)
+
+        def round_down(num, divisor):
+            return num - (num%divisor)
+        
+        def round_up(num, divisor):
+            return num + (divisor-num%divisor)
+
+        ave = [{'pid': item['_id'], 'ave': torch.nan_to_num(torch.roll(torch.tensor(item['data']),2,1)).mean(dim=0)[0].item()} for i, item in self.data.iterrows()]
+        # ave = ave.rename(columns={'FANTASY_POINTS_v0':'FP_MAX'}).sort_values('FP_MAX', ascending=False)
+        ave = pd.DataFrame(ave)
+        max_val = round_up(ave['ave'].max(), BUCKET_SIZE)
+        min_val = round_down(ave['ave'].min(), BUCKET_SIZE)
+        bucket_keys = [n for n in range(1, int((max_val - min_val)/BUCKET_SIZE)+1)]
+        buckets = {n: None for n in bucket_keys}
+        for key in bucket_keys:
+            ids = ave[ave.ave <= key*BUCKET_SIZE+min_val].pid.to_list()
+            buckets[key] = ids
+        for _ in range(len(self)):
+
+            bucket = random.randint(1,len(bucket_keys))
+            pid = random.choice(buckets[bucket])
+
+            player = player_lookup[pid]
+            data = torch.nan_to_num(torch.roll(torch.tensor(self.data[self.data._id==pid].data.item()),2,1))
+
+            start = 0
+            train_length = len(data) - self.S
+            index_in = torch.tensor([i for i in range(start, train_length)])
+            index_tar = torch.tensor([i for i in range(start + train_length, start + train_length + self.S)])
+            
+            _input = data[start:start+train_length]
+            target = data[start+train_length:start+train_length+self.S]
+
+            yield index_in, index_tar, _input.unsqueeze(0), target.unsqueeze(0), player
 
 
 class SensorDataset(Dataset):

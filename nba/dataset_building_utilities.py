@@ -9,6 +9,7 @@ from db.mongo.enums import *
 from db.mongo.utils import get_season_str_after, has_both_years
 
 nba_db = client['NBA']
+dataset_db = client['Datasets']
 
 def create_minutes_dataset_from_basic_and_advanced_player_seasons():
     '''
@@ -77,7 +78,7 @@ def create_player_game_log_dataset():
     # collections that we will be using
     PGL = nba_db.PlayerGameLogs
     PGLA = nba_db.PlayerGameLogsAdv
-    Dataset = nba_db.DatasetPlayerGameLogs
+    Dataset = dataset_db.DatasetPlayerGameLogs
 
     # the list of basic and advanced stats that we wish to keep
     season_stat_keys = ['PLAYER_NAME', 'PLAYER_ID', 'GAME_DATE', 'GAME_ID', 'START_POSITION', 'PLAYER_AGE', 'MIN', 'FGM', 'FGA', 'FG3M', 'FG3A', 'FTM', 'FTA', 'OREB', 'DREB', 'REB', 'AST', 'TOV', 'STL', 'BLK', 'PF', 'PTS', 'PLUS_MINUS', 'OFF_RATING', 'DEF_RATING', 'NET_RATING', 'OREB_PCT', 'DREB_PCT', 'AST_PCT', 'EFG_PCT', 'TS_PCT', 'USG_PCT', 'PACE','PIE', 'POSS']
@@ -117,3 +118,57 @@ def create_player_game_log_dataset():
             Dataset.insert_many(combined)
 
     print("Done building player game log dataset")
+
+
+
+def create_player_season_dataset():
+    '''
+    This function will create a collection in mongo that has basic and advanced season stats for all players.
+    '''
+    def pop_sibling(seas_adv:list, seas):
+        '''Loops over season_adv, and once it finds an item with GAME_ID==game_id, removes it and returns the item. If it can't find it, it returns None'''
+        for sa in seas_adv:
+            if sa['SEASON']==seas:
+                seas_adv.remove(sa)
+                return sa
+        return None
+
+    # collections that we will be using
+    PS = nba_db.PlayerSeasonStats
+    PSA = nba_db.PlayerSeasonStatsAdv
+    Dataset = dataset_db.DatasetPlayerSeason
+
+    # the list of basic and advanced stats that we wish to keep
+    season_stat_keys = ['PLAYER_NAME', 'GP', 'PLAYER_ID', 'SEASON', 'PLAYER_AGE', 'MIN', 'FGM', 'FGA', 'FG3M', 'FG3A', 'FTM', 'FTA', 'OREB', 'DREB', 'REB', 'AST', 'TOV', 'STL', 'BLK', 'PF', 'PTS', 'OFF_RATING', 'DEF_RATING', 'NET_RATING', 'OREB_PCT', 'DREB_PCT', 'AST_PCT', 'EFG_PCT', 'TS_PCT', 'USG_PCT', 'PACE','PIE', 'POSS']
+
+    # get all ids that are in either PlayerSeasonStats and/or PlayerSeasonStatsAdv
+    ids = set(PS.distinct("PLAYER_ID")) | set(PSA.distinct("PLAYER_ID"))
+
+    # Loop over every player
+    for pid in tqdm(ids, desc="Building player season dataset. Looping over seasons of all players..."):
+
+        # Get the seasons where this player played at least 15 games
+        seas_bas = [doc for doc in PS.find({"PLAYER_ID": pid}).sort('SEASON',pymongo.ASCENDING)]
+        seas_adv   = [doc for doc in PSA.find({"PLAYER_ID": pid}).sort('SEASON', pymongo.ASCENDING)]
+        combined = []
+
+        for sb in seas_bas:
+            seas = sb['SEASON']
+            sa = pop_sibling(seas_adv, seas)
+            if not sa:
+                continue
+            del sa['FGM'] 
+            del sa['FGA']
+            sa['POSS'] = sa['POSS']/sa['GP']
+
+            combined_dict = {**sb, **sa}
+            combined_dict = {key: value for key, value in combined_dict.items() if key in season_stat_keys}
+            combined_dict['FANTASY_POINTS_v0'] = get_fantasy_points_from_game(sb) # same keys as season, so we can use the game log version
+
+            combined.append(combined_dict)
+
+        
+        if combined:
+            Dataset.insert_many(combined)
+
+    print("Done building player season dataset")

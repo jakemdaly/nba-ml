@@ -1,15 +1,19 @@
+import sys, os
 import time
 import copy
 
+sys.path.append(r"/home/jakemdaly/Documents/GitRepos/nba-ml")
 
 from .enums import DATABASES, NBA_COLLECTIONS
-from .utils import get_season_str_YY, get_current_year
+from .utils import get_season_str_YY, get_current_year, min_to_float, get_winning_team
 from datetime import datetime
 from pymongo import MongoClient
 from pymongo.database import Database
 from tqdm import tqdm
 
+from db.mongo.fetch_utils import get_all_game_ids_since_date
 
+from nba_api.stats.endpoints.boxscoretraditionalv2 import BoxScoreTraditionalV2
 from nba_api.stats.library.parameters import MeasureTypeDetailed, PerModeDetailed, SeasonAll
 from nba_api.stats.static.players import get_players, get_active_players
 from nba_api.stats.static.teams import get_teams
@@ -18,6 +22,7 @@ from nba_api.stats.endpoints.playergamelog import PlayerGameLog
 from nba_api.stats.endpoints.boxscoreadvancedv2 import BoxScoreAdvancedV2
 from nba_api.stats.endpoints.playerdashboardbylastngames import PlayerDashboardByLastNGames
 from nba_api.stats.endpoints.teamdashboardbygeneralsplits import TeamDashboardByGeneralSplits
+from nba_api.stats.endpoints.boxscoresummaryv2 import BoxScoreSummaryV2
 
 client = MongoClient('localhost', 27017)
 
@@ -139,7 +144,7 @@ def update_mongo_cpi(player_ids:list):
     return remaining_ids
 
 
-def update_mongo_player_game_logs(player_ids:list):
+def update_mongo_player_game_logs_by_player_id(player_ids:list):
     '''
     This calls PlayerGameLog, which actually returns all of the game logs for a given player. The game logs have basic
     stats for the player, and more importantly, the game IDS for a player, which can be used to get other information
@@ -155,18 +160,23 @@ def update_mongo_player_game_logs(player_ids:list):
     remaining_ids = copy.deepcopy(player_ids)
 
     # for each player id in the specified player_ids list...
-    for player_id in player_ids:
+    for player_id in tqdm(player_ids, desc="Updating player game logs."):
 
         # get this player's info from our NBA.Player collection
         player = collection_players.find_one({"PLAYER_ID": player_id})
 
         try:
-            # get the common player info from NBA.com
-            df_player_game_logs = PlayerGameLog(player['PLAYER_ID'], season=SeasonAll.all).get_data_frames()[0]
 
+            df_player_game_logs = PlayerGameLog(player['PLAYER_ID'], season=SeasonAll.all).get_data_frames()[0]
+            
             # need to convert indices to strings so that we can store in pymongo collection
             df_player_game_logs.index = df_player_game_logs.index.map(str)
-            for k, row in df_player_game_logs.iterrows():
+
+            all_game_ids = list(df_player_game_logs.Game_ID)
+            game_ids_already_in_db = collection.distinct("GAME_ID", {"PLAYER_NAME": player['PLAYER_NAME']})
+            game_ids_to_update = [gid for gid in all_game_ids if gid not in game_ids_already_in_db]
+
+            for k, row in df_player_game_logs[df_player_game_logs.Game_ID.isin(game_ids_to_update)].iterrows():
                 insert = dict(row)
 
                 # standardize names of columns
@@ -205,15 +215,89 @@ def update_mongo_player_game_logs(player_ids:list):
 
     return remaining_ids
 
+def update_mongo_player_game_logs_by_game_id(game_ids:list):
+    '''
+    Will update the NBA.PlayerGameLogs db from a list of game ids. This list of game ids should be gotten from fetch_utils.get_all_game_ids_since_date(),
+    which will get all the game_ids since a date, and IMPORTANTLY update the NBA.Players and NBA.CommonPlayerInfo dbs for any new player ids it finds.
+    Args:
+        game_ids (int)  list of game ids
+    '''
+
+    def init_game_log(game_info):
+        GD = datetime.strptime(game_info['GAME_DATE_EST'][:10], '%Y-%m-%d')
+        return {
+            'SEASON_ID': '2'+ game_info['SEASON'],
+            'GAME_DATE': GD,
+            'MATCHUP': game_info['GAMECODE'][-6:-3] + ' @ ' + game_info['GAMECODE'][-3:],
+            'GAME_ID': game_info['GAME_ID']
+        }
+
+    def already_in_collection(game_id, player_id):
+        gl = [doc for doc in client.NBA.PlayerGameLogs.find({
+           'PLAYER_ID': player_id,
+           'GAME_ID': game_id 
+        })]
+        if len(gl) > 1:
+            print("Found a duplicate entry for player id: {player_id}, game id: {game_id}")
+        elif len(gl) == 1:
+            return True
+        else:
+            return False
+
+    
+    # fields_from_summary = ['SEASON_ID','GAME_DATE','MATCHUP','GAME_ID']
+    # remaining_fields = ['WL', 'PLAYER_AGE','TO', 'MIN']
+    fields_from_box_score = ['FGM','FGA','FG_PCT','FG3M','FG3A','FG3_PCT','FTM','FTA','FT_PCT','OREB','DREB','REB','AST','STL','BLK','PF','PTS','PLUS_MINUS', 'PLAYER_NAME','PLAYER_ID']
+
+    for game_id in tqdm(game_ids, desc=f'Updating NBA.PlayerGameLogs for {len(game_ids)} games'):
+        player_stats = BoxScoreTraditionalV2(game_id).get_normalized_dict()['PlayerStats']
+        bs = BoxScoreSummaryV2(game_id).get_normalized_dict()
+        game_info = bs['GameSummary'][0]
+        try:
+            winning_team = get_winning_team(bs['LineScore'])
+        except: # could be the case that get_winning_team fails because game wasn't played due to COVID or something
+            continue
+        init = init_game_log(game_info)
+        for plyrgm in player_stats:
+            if not already_in_collection(game_info['GAME_ID'], plyrgm['PLAYER_ID']):
+                player_game_log = dict(init)
+                for key in fields_from_box_score:
+                    player_game_log[key] = plyrgm[key] if plyrgm[key] != None else 0
+                player_game_log['MIN'] = min_to_float(plyrgm['MIN'])
+                player_game_log['TOV'] = plyrgm['TO'] if plyrgm['TO'] != None else 0
+                player_game_log['WL'] = 'W' if plyrgm['TEAM_ABBREVIATION'] == winning_team else 'L'
+                # Player Age
+                cpi = client.NBA.CommonPlayerInfo.find_one({"PLAYER_ID": player_game_log['PLAYER_ID']})
+                birthdate = cpi['BIRTHDATE'].split("T")[0]
+                delta = player_game_log['GAME_DATE'] - datetime.strptime(birthdate, "%Y-%m-%d")
+                age = delta.days/365.25
+                player_game_log['PLAYER_AGE'] = age
+
+                client.NBA.PlayerGameLogs.insert_one(player_game_log)
+
+
+
 def update_mongo_player_game_logs_adv_by_game_id(game_ids:list):
+
+    def YYstring_to_YYYYint(string):
+        if int(string) > int(str(datetime.now().year)[-2:]):
+            return int('19'+string)
+        else:
+            return int('20'+string)
+
+    # The NBA only tracked Advanced data from 1996 onwards
+    print(f"Updating NBA.PlayerGameLogsAdv... {len(game_ids)} game ids total, but...", end='')
+    game_ids = [gid for gid in game_ids if YYstring_to_YYYYint( gid[3:5] ) >= 1996 ]
+    print(f" only {len(game_ids)} were more recent than 1996.")
 
     collection = client[DATABASES.NBA][NBA_COLLECTIONS.PlayerGameLogsAdv]
     remaining_ids = copy.deepcopy(game_ids)
 
     # for each player id in the specified player_ids list...
-    for game_id in game_ids:
+    for game_id in tqdm(game_ids, desc=f"Updating NBA.PlayerGameLogsAdv from {len(game_ids)} games"):
 
         try:
+            GD = client.NBA.PlayerGameLogs.find_one({'GAME_ID': game_id}, {"GAME_DATE":1})["GAME_DATE"]
             # get the common player info from NBA.com
             df = BoxScoreAdvancedV2(game_id).get_data_frames()[0]
 
@@ -223,19 +307,19 @@ def update_mongo_player_game_logs_adv_by_game_id(game_ids:list):
                 insert = dict(row)
                 query = {'$and': [{'PLAYER_NAME': insert['PLAYER_NAME']}, {'GAME_ID': insert['GAME_ID']}]}
                 already_in_collection = collection.find_one(query)
-                print("THIS MESSAGE SERVES AS A BREAKPOINT. SEE IF YOU CAN EASILY ADD IN GAME_DATE AT THIS POINT IN THE CODE. RESTART THIS FUNCTION AND PUT A REAL BREAKPOINT.")
-                input()
-                
                 # ... if it already exists we're going to delete it first (ie perform an update)
                 if already_in_collection:
-                    collection.delete_one(query)
+                    continue
+                
+                insert["GAME_DATE"] = GD
+                
 
                 # ... then either way update with the new entry
                 collection.insert_one(insert)
 
             # if successful we can remove this from the remaining ids to do
             remaining_ids.remove(game_id)
-            time.sleep(2)
+            time.sleep(1)
 
             print(f"[db.mongo.utils.update_mongo_player_game_logs] Successfully udpated game {game_id} in {NBA_COLLECTIONS.PlayerGameLogsAdv}")
 
@@ -536,3 +620,4 @@ def update_mongo_team_season_stats_adv(team_ids:list):
         print(f"[db.mongo.utils.update_mongo_team_season_stats] Successfully udpated {team['TEAM_NAME']} in {NBA_COLLECTIONS.TeamSeasonStats}")
 
     return remaining_ids
+

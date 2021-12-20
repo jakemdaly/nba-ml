@@ -6,3 +6,7 @@ notebooks/*
 *.pyc
 db/mongo/__pycache__/*
 *.csv
+*.log
+*.pkl
+*.txt
+*.xlsx
