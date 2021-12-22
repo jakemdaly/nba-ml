@@ -52,6 +52,7 @@ def scrape():
 
     driver = webdriver.Firefox()
     driver.get('https://www.rotoworld.com/basketball/nba/injury-report')
+    # driver.get('https://www.espn.com/nba/injuries')
     print("SUCCESS")
 
     ########################## II - Now scrape the page...

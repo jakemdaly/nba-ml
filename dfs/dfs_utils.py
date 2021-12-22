@@ -59,9 +59,9 @@ def get_draft_kings_available_players(contest_name_regex=and_1_regex):
 
                 players.append( {
                     'PLAYER_NAME': convert_name(full_name),
-                    'TEAM_ABB': dk_player.team_id,
-                    'OPP_TEAM_ABB': dk_player.team_series_details.away_team_id if home_game else dk_player.team_series_details.home_team_id,
-                    'GAME_LOCATION': dk_player.team_series_details.home_team_id,
+                    'TEAM_ABB': TEAMID_TO_ABB[dk_player.team_id],
+                    'OPP_TEAM_ABB': TEAMID_TO_ABB[dk_player.team_series_details.away_team_id] if home_game else TEAMID_TO_ABB[dk_player.team_series_details.home_team_id],
+                    'GAME_LOCATION': TEAMID_TO_ABB[dk_player.team_series_details.home_team_id],
                     'PLAYER_ID': pid,
                     'DK_PLAYER_ID': dk_player.player_id,
                     'SALARY': dk_player.draft_details.salary,
@@ -229,7 +229,7 @@ TEAMID_TO_ABB = {
     5: "CLE",
     6: "DAL",
     7: "DEN",
-    8: "",
+    8: "DET",
     9: "GSW",
     10: "HOU",
     11: "IND",
@@ -251,7 +251,6 @@ TEAMID_TO_ABB = {
     27: "WAS",
     28: "TOR",
     29: "MEM",
-    30: "",
     5312: "CHA"
 }
 

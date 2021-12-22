@@ -128,3 +128,44 @@ def convert_collection_datestring_to_datetime(collection=client.NBA.PlayerGameLo
             raise ValueError(f"Incorrect data format, should be {datestringformat}")
         doc[datestringname] = datetimeformat
         collection.replace_one({"_id": _id}, doc)
+
+def get_year_month_day_yesterday():
+    '''Returns a tuple of yesterdays (year, month, day)'''
+    now = datetime.now()
+    if now.day == 1:
+        if now.month == 1:
+            year = now.year-1
+            month = 12
+            day = monthrange(year, month)[1]
+        else:
+            year = now.year
+            month = now.month - 1
+            day = monthrange(year, month)[1]
+    else:
+        year = now.year
+        month = now.month
+        day = now.day-1
+    return (year, month, day)
+
+
+def verify_game_logs(game_ids:list):
+    '''Checks and prints stats about the specified game_ids. In normal NBA seasons where we aren't expecting a certain number of games to 
+    postponed, we'd want to do some error handling when game ids are missing. However, for now, we'll just print out stats about what we
+    find in mongo'''
+    for gid in game_ids:
+        docs = [d for d in client.NBA.PlayerGameLogs.find({"GAME_ID": gid})]
+        if len(docs) > 0:
+            print(f"Game ID [{gid}]: Found {len(docs)} matching player documents")
+        else:
+            print(f"Game ID [{gid}]: COULDN'T FIND ANY MATCHING DOCUMENTS. WAS THERE A POSTPONEMENT?")
+
+def verify_game_logs_adv(game_ids:list):
+    '''Checks and prints stats about the specified game_ids. In normal NBA seasons where we aren't expecting a certain number of games to 
+    postponed, we'd want to do some error handling when game ids are missing. However, for now, we'll just print out stats about what we
+    find in mongo'''
+    for gid in game_ids:
+        docs = [d for d in client.NBA.PlayerGameLogsAdv.find({"GAME_ID": gid})]
+        if len(docs) > 0:
+            print(f"Game ID [{gid}]: Found {len(docs)} matching player documents")
+        else:
+            print(f"Game ID [{gid}]: COULDN'T FIND ANY MATCHING DOCUMENTS. WAS THERE A POSTPONEMENT?")
